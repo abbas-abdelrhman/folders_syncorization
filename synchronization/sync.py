@@ -3,14 +3,15 @@ import shutil
 import datetime
 import hashlib
 import mmap
+import time
 
 
 class Sync:
     def __init__(self):
         self.recap = {
-            "removed": set(),
-            "modified": set(),
-            "created": set(),
+            "removed": {},
+            "modified": {},
+            "created": {},
         }
 
     def sync(self, src_folder, replica_folder):
@@ -23,16 +24,13 @@ class Sync:
             self.copying_files(set(os.listdir(src_folder)) - set(os.listdir(replica_folder)), src_folder,
                                replica_folder)
 
-
         if set(os.listdir(replica_folder)) - set(os.listdir(src_folder)):
             self.removing_files(set(os.listdir(replica_folder)) - set(os.listdir(src_folder)), replica_folder)
-
 
         if set(os.listdir(src_folder)) & set(os.listdir(replica_folder)):
             self.modified(set(os.listdir(src_folder)) & set(os.listdir(replica_folder)), src_folder, replica_folder)
 
         return self.recap
-
 
     def copying_files(self, src_contents: set, src, replica):
 
@@ -43,8 +41,14 @@ class Sync:
             file_path = os.path.join(src, file)
 
             if not os.path.isdir(file_path):
-                shutil.copy2(os.path.join(src, file), os.path.join(replica))
-                self.recap['created'].add(os.path.join(replica, file))
+                shutil.copy2(os.path.join(src, file), replica)
+                created = {
+                    os.path.join(replica, file): {
+                        "name": file,
+                        "date": time.ctime()
+                    }
+                }
+                self.recap['created'].update(created)
 
             elif os.path.isdir(file_path):
                 self.copying_files(set(os.listdir(file_path)), file_path, os.path.join(replica, file))
@@ -56,11 +60,23 @@ class Sync:
 
             if os.path.exists(item_path):
                 if os.path.isfile(item_path):
+                    removed = {
+                        item_path: {
+                            "name": item,
+                            "type": "File"
+                        }
+                    }
                     os.remove(item_path)
-                    self.recap['removed'].add(item_path)
+                    self.recap['removed'].update(removed)
                 elif os.path.isdir(item_path):
+                    removed = {
+                        item_path: {
+                            "name": item,
+                            "type": "Directory"
+                        }
+                    }
                     shutil.rmtree(item_path)
-                    self.recap['removed'].add(item_path)
+                    self.recap['removed'].update(removed)
             else:
                 continue
 
@@ -77,12 +93,17 @@ class Sync:
                         item1_path) != self.get_modification_time(item2_path):
                     # If the modification times or sizes are different, copy the file from one folder to the other
                     shutil.copy2(item1_path, item2_path)
-                    self.recap['modified'].add(item2_path)
+                    modified = {
+                        item2_path: {
+                            "name": item,
+                            "date": self.get_modification_time(item1_path)
+                        }
+                    }
+                    self.recap['modified'].update(modified)
 
             elif os.path.isdir(item1_path) and os.path.isdir(item2_path):
                 # If both items are directories, recursively compare their contents
                 self.sync(item1_path, item2_path)
-
 
     @staticmethod
     def get_modification_time(item_path):
@@ -99,5 +120,3 @@ class Sync:
             with open(file_path, 'rb') as file, mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as file_contents:
                 file_hash = hashlib.sha256(file_contents).hexdigest()
                 return file_hash
-
-
